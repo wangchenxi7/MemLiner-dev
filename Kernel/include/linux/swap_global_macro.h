@@ -58,9 +58,13 @@
 //
 // ## Basic Macros ##
 //
+#ifndef ONE_MB
+	#define ONE_MB    1048576UL		// 1024 x 2014 bytes
+#endif
 
-#define ONE_MB    1048576UL				// 1024 x 2014 bytes
-#define ONE_GB    1073741824UL   	// 1024 x 1024 x 1024 bytes
+#ifndef ONE_GB
+	#define ONE_GB    1073741824UL   	// 1024 x 1024 x 1024 bytes
+#endif
 
 #ifndef PAGE_SIZE
 	#define PAGE_SIZE		((unsigned long)4096)	// bytes, use the define of kernel.
@@ -113,7 +117,12 @@
 
 
 
+//
+// The epoch related macros
+//
 
+// 64GB memory
+#define COVERED_MEM_LENGTH 16*ONE_MB
 
 
 #endif // end of __LINUX_SWAP_SWAP_GLOBAL_MACRO_H
