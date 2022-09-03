@@ -9,18 +9,38 @@
 // Global variables 
 //
 
-// defined in extended_syscall.c
-extern void *user_kernel_shared_data;
+
+
+// page status 
+enum page_stat{
+  MAPPED   = 0,
+  UNMAPPED = 1,
+  SWAPPED  = 2,
+};
 
 
 // [TODO] Actually, we can store the present of not information
 // into the page_stat and let the runtime query this information
 // In this case, the epoch is useless?
+// [TODO] Record the process ID. Right now only the data of
+// single process can be swapped out.
+//
+//  Structure of the epoch_struct	
+//  |--4 bytes for eppch --|-- 4 bytes for legnth --|-- unsigned char array --|
 struct epoch_struct{
   unsigned int epoch;   // the first 32 bits for epoch recording
-  unsigned int page_stat[COVERED_MEM_LENGTH];  // the epoch value for each page
+  unsigned int length;  // length of the page_stats
+  //unsigned int page_stats[COVERED_MEM_LENGTH];  // the epoch value for each page
+  unsigned char page_stats[];
 };
 
+// defined in extended_syscall.c
+extern struct epoch_struct *user_kernel_shared_data;
+
+
+void intialize_epoch_struct(struct epoch_struct* cur_epoch, unsigned long byte_size);
+unsigned long virt_addr_to_page_stat_offset(unsigned long virt_addr);
+void mark_page_stat(unsigned long user_virt_addr, enum page_stat state);
 
 
 //

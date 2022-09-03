@@ -9,7 +9,7 @@
 
 // For debug
 // Declared in linux/swap_global_struct_mem_layer.h
-void *user_kernel_shared_data = NULL;
+struct epoch_struct *user_kernel_shared_data = NULL;
 
 
 
@@ -106,11 +106,63 @@ SYSCALL_DEFINE2(get_all_procs_swap_pkts, int __user *, num_procs, char __user *,
  * 
  */
 
+// check the structure of the epoch_struct
+//  |--4 bytes for eppch --|-- 4 bytes for legnth --|-- unsigned char array --|
+void intialize_epoch_struct(struct epoch_struct* cur_epoch, unsigned long byte_size)
+{
+  memset(cur_epoch, 0, byte_size); // 0 is MAPPED
+  cur_epoch->epoch = 0;
+  cur_epoch->length = (byte_size - 8)/sizeof(char);
+
+  //debug
+  pr_warn("%s, get epoch_struct with legnth 0x%x items\n", __func__, cur_epoch->length);
+}
+
+// Only monitor the page status for the range of Java heap.
+bool within_memliner_range(unsigned long user_addr)
+{
+	if( user_addr >= SEMERU_START_ADDR && user_addr < SEMERU_END_ADDR  ){
+		return 1;
+	}
+
+	return 0;
+}
+
+
+unsigned long virt_addr_to_page_stat_offset(unsigned long virt_addr){
+	if(within_memliner_range(virt_addr)){
+  		return (virt_addr - SEMERU_START_ADDR)>>PAGE_SHIFT;
+	}
+	return -1; // the max value of the unsignged long
+}
+
+// Is this necessary to be an atomic operation?
+// Caller must solve the concurrency problem.
+void mark_page_stat(unsigned long user_virt_addr, enum page_stat state){
+	unsigned long page_index;
+
+	page_index = virt_addr_to_page_stat_offset(user_virt_addr);
+	if(page_index!= (unsigned long)-1){
+
+  		user_kernel_shared_data->page_stats[page_index] = state;
+	}
+	
+#if defined(DEBUG_SWAP_SLOW_BRIEF)
+	pr_err("%s, user_virt_addr 0x%lx exceed the Java heap range[0x%lx, 0x%lx)",
+		__func__, user_virt_addr, SEMERU_START_ADDR, SEMERU_END_ADDR);
+#endif
+}
+
+
 /**
- * @brief Pass the allocated user space virtual memory range to kernel
- * 
- * @param uaddr 
- * @param size 
+ * @brief Pass the allocated user space virtual memory range to kernel.
+ *	The shared memory range is used to store the struct, epoch_struct. 
+ *
+ *  Structure of the epoch_struct	
+ *  |--4 bytes for eppch --|-- 4 bytes for legnth --|-- unsigned char array --|
+ *
+ * @param uaddr the user space start addr of the user-kernel shared buffer.
+ * @param size  byte size of the user-kernel shared buffer.
  */
 SYSCALL_DEFINE2(mmap_user_kernel_shared_mem, int __user *, user_buf,
 		unsigned long, size)
@@ -152,7 +204,7 @@ SYSCALL_DEFINE2(mmap_user_kernel_shared_mem, int __user *, user_buf,
 	// 	might_sleep();
 	// }
 
-	if(unlikely(!down_read_trylock(&mm->mmap_sem))) {
+	if(unlikely(!down_write_trylock(&mm->mmap_sem))) {
 		pr_err("%s, failed  to acquire the read lock of mm->mmap_sem\n", __func__);
 		ret = -1;
 		goto out;
@@ -167,7 +219,7 @@ SYSCALL_DEFINE2(mmap_user_kernel_shared_mem, int __user *, user_buf,
 	vma->vm_flags &= ~VM_PFNMAP;
 
 	// release the readlock of mm->mmap_sem
-	up_read(&mm->mmap_sem);
+	up_write(&mm->mmap_sem);
 
 	// saint checks
 	if (unlikely(!vma)) {
@@ -193,11 +245,14 @@ SYSCALL_DEFINE2(mmap_user_kernel_shared_mem, int __user *, user_buf,
 	}
 	// touch the range to allocate physical memory
 	// Warning: the init value (char 8 bytes), 2, is for debuging.
-	memset(user_kernel_shared_data, 2, size);
-	pr_warn("%s, kernel allocated bufer [0x%lx, 0x%lx), and initialize to 2\n",
-			__func__, (unsigned long)user_kernel_shared_data, size);
+	//memset(user_kernel_shared_data, 2, size);
+	//pr_warn("%s, kernel allocated bufer [0x%lx, 0x%lx), and initialize to 2\n",
+	//		__func__, (unsigned long)user_kernel_shared_data, size);
+	intialize_epoch_struct(user_kernel_shared_data, size);
+
 
 	// 3) Fill the vm_area_struct with kernel pages
+	// offset within the kernel space range is 0.
 	if(unlikely( ret=remap_vmalloc_range(vma, (void*)user_kernel_shared_data, 0))){
 		pr_err("%s, remap_vmalloc_range failed with err code %d\n", __func__, ret );
 		goto out;
