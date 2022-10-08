@@ -1693,21 +1693,34 @@ jint G1CollectedHeap::initialize() {
 	Universe::check_alignment(max_byte_size, HeapRegion::GrainBytes, "g1 heap");
 	Universe::check_alignment(max_byte_size, heap_alignment, "g1 heap");
 
-	// Reserve the maximum.
 
-	// When compressed oops are enabled, the preferred heap base
-	// is calculated by subtracting the requested size from the
-	// 32Gb boundary and using the result as the base address for
-	// heap reservation. If the requested size is not aligned to
-	// HeapRegion::GrainBytes (i.e. the alignment that is passed
-	// into the ReservedHeapSpace constructor) then the actual
-	// base of the reserved heap may end up differing from the
-	// address that was requested (i.e. the preferred heap base).
-	// If this happens then we could end up using a non-optimal
-	// compressed oops mode.
+	// MemLiner heap
+	ReservedSpace heap_rs;
+  	ReservedSpace g1_rs;
 
-	ReservedSpace heap_rs = Universe::reserve_heap(max_byte_size,
-																								 heap_alignment);
+	if (MemLinerEnableMemPool) {
+		// Allocate the MemLiner heap at a fixed virtual address
+
+		// max_byte_size is also controlled by -Xmx at CPU server now.
+		heap_rs = Universe::reserve_memliner_memory_pool(max_byte_size, heap_alignment);
+
+	} else {
+		// The default path
+		// Reserve the maximum.
+
+		// When compressed oops are enabled, the preferred heap base
+		// is calculated by subtracting the requested size from the
+		// 32Gb boundary and using the result as the base address for
+		// heap reservation. If the requested size is not aligned to
+		// HeapRegion::GrainBytes (i.e. the alignment that is passed
+		// into the ReservedHeapSpace constructor) then the actual
+		// base of the reserved heap may end up differing from the
+		// address that was requested (i.e. the preferred heap base).
+		// If this happens then we could end up using a non-optimal
+		// compressed oops mode.
+
+		heap_rs = Universe::reserve_heap(max_byte_size, heap_alignment);
+	}
 
 	initialize_reserved_region((HeapWord*)heap_rs.base(), (HeapWord*)(heap_rs.base() + heap_rs.size()));
 
@@ -1745,7 +1758,7 @@ jint G1CollectedHeap::initialize() {
 	_hot_card_cache = new G1HotCardCache(this);
 
 	// Carve out the G1 part of the heap.
-	ReservedSpace g1_rs = heap_rs.first_part(max_byte_size);
+	g1_rs = heap_rs.first_part(max_byte_size);
 	size_t page_size = actual_reserved_page_size(heap_rs);
 	G1RegionToSpaceMapper* heap_storage =
 		G1RegionToSpaceMapper::create_heap_mapper(g1_rs,
